@@ -1,2 +1,16 @@
 # rust-safe-garbage-collection
 Safe Rust Garbage Collection: 100% unsafe-free mark-and-sweep implementation using index-based arenas. Handle cyclic graphs and back-references via generation counters and u32 keys instead of raw pointers. High-performance memory management for scripting VMs and game engines without breaking the borrow checker. Zero-unsafe architecture
+
+Most Rust developers believe that writing a garbage collector requires a deal with the devil: you trade your borrow checker faith for a pile of `unsafe` blocks and raw pointers. The common wisdom says that cyclic graphs and back-references simply can't exist within the boundaries of Safe Rust. But that’s a myth. You can build a robust, production-ready GC without a single line of `unsafe` code by shifting the entire architecture from pointers to indexed arenas.
+
+The core struggle is that Rust’s ownership model is designed for trees, not webs. When you have a DOM tree or a scripting language heap where everything points to everything else, `Rc` and `Arc` start to leak cycles. Most library authors take the path of least resistance — using `*mut T` and manually managing the mess. This approach effectively throws away the safety guarantees Rust was built for.
+
+A zero-unsafe architecture replaces this chaos with a centralized `Heap` based on `Vec<Slot<T>>`. Instead of pointers, we use `u32` indices. Every time you access an object, the system performs a bounds check. It’s a fundamental shift: you let the type system handle the heavy lifting that pointer arithmetic used to do. If an object is collected, the index lookup simply returns `None` instead of causing a segmentation fault.
+
+To solve the ABA problem — where a slot is reused for a new object while an old handle still points to it — we implement generation counters. Each slot carries a `u32` stamp that increments on reuse. Every `Gc<T>` handle stores the generation it was born in. If the generations don’t match during access, the handle is dead. This costs a few bytes and one integer comparison, but it completely eliminates type confusion bugs that are nearly impossible to debug in raw-pointer implementations.
+
+The mark-and-sweep algorithm itself becomes a clean, mechanical process. By using a `Trace` trait, objects tell the collector which indices they hold. The mark phase traverses the graph starting from the root set, and the sweep phase iterates through the arena vectors to reclaim memory. While index-based access is technically slower than raw pointer dereferencing (roughly 1.5–2x overhead in tight loops), the trade-off is worth it for the absolute memory safety and cache locality that arenas provide.
+
+This isn't just a prototype concept; it's a viable strategy for scripting VMs, game entity systems, and complex domain models where correctness is more important than saving a couple of nanoseconds. If you want to see how to manage deep, cyclic object graphs without ever breaking the borrow checker’s rules, check out the full technical breakdown.
+
+Read the full article here: Garbage Collection in Rust Without a Single unsafe Block https://krun.pro/rust-garbage-collectio/
